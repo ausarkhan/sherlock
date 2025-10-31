@@ -448,14 +448,27 @@ def sherlock(
                     error_codes = net_info.get("errorCode")
                     query_status = QueryStatus.CLAIMED
 
-                    # Type consistency, allowing for both singlets and lists in manifest
-                    if isinstance(error_codes, int):
-                        error_codes = [error_codes]
+                    # Normalize status code to int when possible.
+                    try:
+                        status_code_val = int(r.status_code)
+                    except Exception:
+                        status_code_val = None
 
-                    if error_codes is not None and r.status_code in error_codes:
-                        query_status = QueryStatus.AVAILABLE
-                    elif r.status_code >= 300 or r.status_code < 200:
-                        query_status = QueryStatus.AVAILABLE
+                    # Treat non-standard or out-of-range status codes (for example
+                    # LinkedIn's 999 Request Denied) as WAF/blocked. These do not
+                    # reliably indicate availability and are usually caused by
+                    # bot-blocking WAFs.
+                    if status_code_val is None or status_code_val < 100 or status_code_val > 599:
+                        query_status = QueryStatus.WAF
+                    else:
+                        # Type consistency, allowing for both singlets and lists in manifest
+                        if isinstance(error_codes, int):
+                            error_codes = [error_codes]
+
+                        if error_codes is not None and status_code_val in error_codes:
+                            query_status = QueryStatus.AVAILABLE
+                        elif status_code_val >= 300 or status_code_val < 200:
+                            query_status = QueryStatus.AVAILABLE
 
                 if "response_url" in error_type and query_status is not QueryStatus.AVAILABLE:
                     # For this detection method, we have turned off the redirect.
